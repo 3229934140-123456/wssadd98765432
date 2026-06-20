@@ -7,14 +7,14 @@ import {
   Check,
   Loader2,
 } from 'lucide-react';
-import type { MessageTemplate, MessageType } from '../types/message';
+import type { MessageTemplate, MessageTemplateType } from '../types/message';
 import { cn } from '../lib/utils';
 
 interface MessageTemplateCardProps {
   template: MessageTemplate;
   workTitle: string;
   draftCount: number;
-  onSend: (type: MessageType, content: string) => void;
+  onSend: (type: MessageTemplateType) => void;
 }
 
 const iconMap: Record<string, typeof Bell> = {
@@ -23,7 +23,7 @@ const iconMap: Record<string, typeof Bell> = {
   Calendar,
 };
 
-const typeConfig: Record<MessageType, {
+const typeConfig: Record<MessageTemplateType, {
   borderColor: string;
   hoverBg: string;
   activeBg: string;
@@ -70,7 +70,7 @@ export function MessageTemplateCard({
   const handleSend = async () => {
     setSending(true);
     await new Promise((resolve) => setTimeout(resolve, 800));
-    onSend(template.type, content);
+    onSend(template.type);
     setSending(false);
     setSent(true);
     setTimeout(() => {

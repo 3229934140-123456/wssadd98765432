@@ -15,22 +15,22 @@ import { useMessageStore } from '../store/useMessageStore';
 import { useUserStore } from '../store/useUserStore';
 import { getAuthorById } from '../utils/mockData';
 import { formatRelativeTime } from '../utils/dateUtils';
-import type { Message, MessageType } from '../types/message';
+import type { Message, MessageTemplateType } from '../types/message';
 import { cn } from '../lib/utils';
 
-const typeIcons: Record<MessageType, typeof Bell> = {
+const typeIcons: Record<MessageTemplateType, typeof Bell> = {
   reminder: Bell,
   suggestion: Lightbulb,
   appointment: Calendar,
 };
 
-const typeLabels: Record<MessageType, string> = {
+const typeLabels: Record<MessageTemplateType, string> = {
   reminder: '提醒',
   suggestion: '建议',
   appointment: '预约',
 };
 
-const typeColors: Record<MessageType, {
+const typeColors: Record<MessageTemplateType, {
   bg: string;
   icon: string;
   text: string;
@@ -63,20 +63,22 @@ interface WorkMessageGroup {
 export function Messages() {
   const { currentUser } = useUserStore();
   const {
-    getFilteredMessages,
-    filterType,
-    filterRead,
-    setFilterType,
-    setFilterRead,
+    messages,
+    getMessagesByWorkSorted,
+    getUnreadCount,
     markAsRead,
+    sendMessage,
     markAllAsRead,
   } = useMessageStore();
 
   const [selectedWorkId, setSelectedWorkId] = useState<string | null>(null);
+  const [newMessage, setNewMessage] = useState('');
+  const [filterType, setFilterType] = useState('all');
+  const [filterRead, setFilterRead] = useState('all');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const allMessages = currentUser ? getFilteredMessages(currentUser.id) : [];
-  const unreadCount = currentUser ? useMessageStore.getState().getUnreadCount(currentUser.id) : 0;
+  const unreadCount = getUnreadCount();
 
   const typeFilters = [
     { value: 'all', label: '全部' },
@@ -91,11 +93,21 @@ export function Messages() {
     { value: 'read', label: '已读' },
   ];
 
-  const workGroups = (() => {
+  const workGroups = useMemo(() => {
+    if (!currentUser) return [];
+
     const groupsMap = new Map<string, WorkMessageGroup>();
-    allMessages.forEach((msg) => {
+    const userMessages = messages.filter(
+      m => m.senderId === currentUser.id || m.receiverId === currentUser.id
+    );
+
+    userMessages.forEach((msg) => {
+      if (filterType !== 'all' && msg.templateType !== filterType) return;
+      const isUnread = !msg.read && msg.receiverId === currentUser.id;
+      if (filterRead === 'unread' && !isUnread) return;
+      if (filterRead === 'read' && isUnread) return;
+
       const existing = groupsMap.get(msg.workId);
-      const isUnread = !msg.isRead && currentUser && msg.receiverId === currentUser.id;
       if (existing) {
         existing.messages.push(msg);
         if (isUnread) existing.unreadCount++;
@@ -117,34 +129,36 @@ export function Messages() {
         new Date(b.latestMessage.createdAt).getTime() -
         new Date(a.latestMessage.createdAt).getTime()
     );
-  })();
+  }, [messages, currentUser, filterType, filterRead]);
+
+  const selectedMessages = useMemo(() => (
+    selectedWorkId
+      ? getMessagesByWorkSorted(selectedWorkId)
+      : []
+  ), [selectedWorkId, getMessagesByWorkSorted]);
 
   const selectedGroup = selectedWorkId ? workGroups.find(g => g.workId === selectedWorkId) || null : null;
-  const selectedMessages = useMemo(() => (
-    selectedGroup
-      ? [...selectedGroup.messages.sort((a, b) =>
-          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-        )]
-      : []
-  ), [selectedGroup]);
 
   const handleSelectWork = (groupId: string) => {
     setSelectedWorkId(groupId);
-    if (currentUser) {
-      const group = workGroups.find(g => g.workId === groupId);
-      if (group) {
-        group.messages.forEach(msg => {
-          if (!msg.isRead && msg.receiverId === currentUser.id) {
-            markAsRead(msg.id);
-          }
-        });
-      }
-    }
+    markAsRead(groupId);
   };
 
   const handleMarkAllRead = () => {
-    if (currentUser) {
-      markAllAsRead(currentUser.id);
+    markAllAsRead();
+  };
+
+  const handleSendMessage = () => {
+    if (!selectedWorkId || !newMessage.trim()) return;
+    sendMessage(selectedWorkId, newMessage.trim());
+    setNewMessage('');
+    setTimeout(() => inputRef.current?.focus(), 100);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
     }
   };
 
@@ -161,6 +175,10 @@ export function Messages() {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [selectedMessages]);
+
+  if (!currentUser) {
+    return <div className="text-center py-20 text-stone-500">请先登录</div>;
+  }
 
   return (
     <div className="space-y-8">
@@ -253,7 +271,7 @@ export function Messages() {
               workGroups.map((group) => {
                 const sender = getMessageUser(group.latestMessage.senderId);
                 const isSelected = selectedWorkId === group.workId;
-                const isSent = currentUser && group.latestMessage.senderId === currentUser.id;
+                const isSent = group.latestMessage.senderId === currentUser.id;
 
                 return (
                   <button
@@ -329,88 +347,121 @@ export function Messages() {
                       《{selectedGroup.workTitle}》
                     </h3>
                     <p className="text-sm text-stone-500">
-                      共 {selectedGroup.messages.length} 条沟通记录
+                      共 {selectedMessages.length} 条沟通记录
                     </p>
                   </div>
-                  {selectedGroup.unreadCount > 0 && (
-                    <span className="px-3 py-1 bg-rose-100 text-rose-600 rounded-full text-xs font-medium">
-                      {selectedGroup.unreadCount} 条未读
-                    </span>
-                  )}
                 </div>
               </div>
 
               <div className="flex-1 p-6 overflow-y-auto scrollbar-thin bg-stone-50/50 space-y-4">
-                {selectedMessages.map((message, idx) => {
-                  const isMe = currentUser && message.senderId === currentUser.id;
-                  const user = getMessageUser(message.senderId);
-                  const Icon = typeIcons[message.type];
-                  const colors = typeColors[message.type];
-                  const prevMessage = idx > 0 ? selectedMessages[idx - 1] : null;
-                  const showDateDivider =
-                    !prevMessage ||
-                    prevMessage.createdAt.slice(0, 10) !== message.createdAt.slice(0, 10);
+                {selectedMessages.length === 0 ? (
+                  <div className="h-full flex items-center justify-center">
+                    <div className="text-center">
+                      <MessageSquare className="w-12 h-12 text-stone-300 mx-auto mb-3" />
+                      <p className="text-stone-500">暂无沟通记录</p>
+                      <p className="text-xs text-stone-400 mt-1">发送第一条消息开始沟通</p>
+                    </div>
+                  </div>
+                ) : (
+                  selectedMessages.map((message, idx) => {
+                    const isMe = message.senderId === currentUser.id;
+                    const user = getMessageUser(message.senderId);
+                    const prevMessage = idx > 0 ? selectedMessages[idx - 1] : null;
+                    const showDateDivider =
+                      !prevMessage ||
+                      prevMessage.createdAt.slice(0, 10) !== message.createdAt.slice(0, 10);
 
-                  return (
-                    <div key={message.id}>
-                      {showDateDivider && (
-                        <div className="flex items-center gap-4 my-6">
-                          <div className="flex-1 h-px bg-stone-200" />
-                          <span className="text-xs text-stone-400">
-                            {message.createdAt.slice(0, 10)}
-                          </span>
-                          <div className="flex-1 h-px bg-stone-200" />
-                        </div>
-                      )}
-
-                      <div className={cn(
-                        'flex gap-3',
-                        isMe ? 'flex-row-reverse' : ''
-                      )}>
-                        <img
-                          src={user.avatar}
-                          alt={user.name}
-                          className="w-9 h-9 rounded-full bg-stone-200 flex-shrink-0"
-                        />
-                        <div className={cn(
-                          'max-w-[70%]',
-                          isMe ? 'items-end' : ''
-                        )}>
-                          <div className={cn(
-                            'flex items-center gap-2 mb-1 text-xs text-stone-500',
-                            isMe ? 'justify-end' : ''
-                          )}>
-                            <span className="font-medium text-stone-700">
-                              {isMe ? '我' : user.name}
+                    return (
+                      <div key={message.id}>
+                        {showDateDivider && (
+                          <div className="flex items-center gap-4 my-6">
+                            <div className="flex-1 h-px bg-stone-200" />
+                            <span className="text-xs text-stone-400">
+                              {message.createdAt.slice(0, 10)}
                             </span>
-                            <span
-                              className={cn(
-                                'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded',
-                                colors.bg,
-                                colors.text
-                              )}
-                            >
-                              <Icon className="w-3 h-3" />
-                              {typeLabels[message.type]}
-                            </span>
-                            <span>{message.createdAt.slice(11, 16)}</span>
+                            <div className="flex-1 h-px bg-stone-200" />
                           </div>
+                        )}
+
+                        <div className={cn(
+                          'flex gap-3',
+                          isMe ? 'flex-row-reverse' : ''
+                        )}>
+                          <img
+                            src={user.avatar}
+                            alt={user.name}
+                            className="w-9 h-9 rounded-full bg-stone-200 flex-shrink-0"
+                          />
                           <div className={cn(
-                            'rounded-2xl px-4 py-3',
-                            isMe
-                              ? 'bg-[#1e3a5f] text-white rounded-tr-md'
-                              : 'bg-white border border-stone-200 text-stone-700 rounded-tl-md shadow-sm'
+                            'max-w-[70%]',
+                            isMe ? 'items-end' : ''
                           )}>
-                            <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                              {message.content}
-                            </p>
+                            <div className={cn(
+                              'flex items-center gap-2 mb-1 text-xs text-stone-500',
+                              isMe ? 'justify-end' : ''
+                            )}>
+                              <span className="font-medium text-stone-700">
+                                {isMe ? '我' : user.name}
+                              </span>
+                              {message.templateType && (
+                                <span
+                                  className={cn(
+                                    'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded',
+                                    typeColors[message.templateType].bg,
+                                    typeColors[message.templateType].text
+                                  )}
+                                >
+                                  {(() => {
+                                    const Icon = typeIcons[message.templateType];
+                                    return <Icon className="w-3 h-3" />;
+                                  })()}
+                                  {typeLabels[message.templateType]}
+                                </span>
+                              )}
+                              <span>{message.createdAt.slice(11, 16)}</span>
+                            </div>
+                            <div className={cn(
+                              'rounded-2xl px-4 py-3',
+                              isMe
+                                ? 'bg-[#1e3a5f] text-white rounded-tr-md'
+                                : 'bg-white border border-stone-200 text-stone-700 rounded-tl-md shadow-sm'
+                            )}>
+                              <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                                {message.content}
+                              </p>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
                 <div ref={messagesEndRef} />
+              </div>
+
+              <div className="p-4 border-t border-stone-200 bg-white">
+                <div className="flex gap-3">
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="输入消息内容，按 Enter 发送..."
+                    className="flex-1 px-4 py-3 rounded-xl border border-stone-200 focus:border-[#1e3a5f] focus:ring-1 focus:ring-[#1e3a5f] outline-none text-sm bg-stone-50 focus:bg-white transition-colors"
+                  />
+                  <button
+                    onClick={handleSendMessage}
+                    disabled={!newMessage.trim()}
+                    className="px-6 py-3 bg-[#1e3a5f] text-white rounded-xl hover:bg-[#2d4a6f] disabled:bg-stone-300 disabled:cursor-not-allowed transition-colors font-medium flex items-center gap-2"
+                  >
+                    <Send className="w-4 h-4" />
+                    发送
+                  </button>
+                </div>
+                <p className="text-xs text-stone-400 mt-2 ml-1">
+                  提示：发送消息后，对方会在消息中心收到提醒，作品的跟进状态也会同步更新
+                </p>
               </div>
             </div>
           ) : (

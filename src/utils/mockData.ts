@@ -22,8 +22,6 @@ const workTitles = [
 
 const categories = ['玄幻', '都市', '仙侠', '历史', '科幻', '悬疑', '言情', '武侠'];
 
-// Update status values for reference
-
 const coverColors = [
   'from-slate-700 to-slate-900',
   'from-amber-600 to-amber-800',
@@ -142,11 +140,22 @@ const followupPatterns: FollowupStatus[] = [
   'resolved', 'resolved', 'untreated', 'resolved', 'resolved', 'resolved', 'resolved',
 ];
 
+const resolutionNotes: Record<number, string> = {
+  7: '作者已恢复更新节奏，近三日日均码字5000+，存稿恢复至5章',
+  8: '作者请假三天处理家事，现已回归正常更新',
+  9: '调整更新计划为两日一更，与读者沟通后反响良好',
+  11: '作者卡文期已过，剧情进入新阶段，更新恢复稳定',
+  12: '存稿已补充至8章，后续更新有保障',
+  13: '与作者沟通后制定了新的创作时间表，执行情况良好',
+  14: '作者参加完婚礼已回归，更新恢复正常节奏',
+};
+
 workTitles.forEach((title, index) => {
   const author = authors[index % authors.length];
   const editor = editors[index % editors.length];
   const riskPattern = riskPatterns[index];
   const workId = `work-${index + 1}`;
+  const followupStatus = followupPatterns[index];
 
   const workStatuses = generateDailyStatuses(workId, riskPattern);
   dailyStatuses.push(...workStatuses);
@@ -154,7 +163,7 @@ workTitles.forEach((title, index) => {
   const riskLevel = calculateRiskLevel(workStatuses);
   const riskReasons = calculateRiskReasons(workStatuses);
 
-  works.push({
+  const work: Work = {
     id: workId,
     title,
     cover: `linear-gradient(135deg, var(--tw-gradient-from), var(--tw-gradient-to))`,
@@ -166,8 +175,15 @@ workTitles.forEach((title, index) => {
     status: 'ongoing',
     riskLevel,
     riskReasons,
-    followupStatus: followupPatterns[index],
-  });
+    followupStatus,
+  };
+
+  if (followupStatus === 'resolved' && resolutionNotes[index]) {
+    work.resolutionNote = resolutionNotes[index];
+    work.resolvedAt = formatDateTime(getDateDaysAgo(Math.floor(Math.random() * 3) + 1));
+  }
+
+  works.push(work);
 });
 
 export const messageTemplates: MessageTemplate[] = [
@@ -202,125 +218,177 @@ const leaveReasons = [
   '参加朋友婚礼，请假一天',
 ];
 
+function getUserName(id: string): string {
+  const user = users.find(u => u.id === id);
+  return user?.name || '未知用户';
+}
+
+function getUserRole(id: string): 'author' | 'editor' {
+  return id.startsWith('editor') ? 'editor' : 'author';
+}
+
 export const messages: Message[] = [
   {
     id: generateId(),
     senderId: 'editor-1',
+    senderName: getUserName('editor-1'),
+    senderRole: getUserRole('editor-1'),
     receiverId: 'author-1',
+    receiverName: getUserName('author-1'),
     workId: 'work-1',
     workTitle: '星河长明',
-    type: 'reminder',
     content: '您好，注意到《星河长明》近日更新节奏有所放缓，目前存稿 0 章。建议合理安排时间，如有困难随时沟通~',
-    template: 'reminder',
-    isRead: false,
+    templateType: 'reminder',
+    read: false,
     createdAt: formatDateTime(getDateDaysAgo(0)),
   },
   {
     id: generateId(),
     senderId: 'editor-1',
+    senderName: getUserName('editor-1'),
+    senderRole: getUserRole('editor-1'),
     receiverId: 'author-2',
+    receiverName: getUserName('author-2'),
     workId: 'work-2',
     workTitle: '剑影江湖',
-    type: 'suggestion',
     content: '建议：1) 先发一章番外稳住读者 2) 将长章拆分为两章发布 3) 提前发单章说明情况。您可以根据实际情况选择~',
-    template: 'suggestion',
-    isRead: true,
+    templateType: 'suggestion',
+    read: true,
     createdAt: formatDateTime(getDateDaysAgo(1)),
   },
   {
     id: generateId(),
     senderId: 'editor-2',
+    senderName: getUserName('editor-2'),
+    senderRole: getUserRole('editor-2'),
     receiverId: 'author-3',
+    receiverName: getUserName('author-3'),
     workId: 'work-3',
     workTitle: '浮生若梦',
-    type: 'appointment',
     content: '关于《浮生若梦》的后续更新计划，想和您约个时间沟通一下。请问您本周什么时间段方便呢？',
-    template: 'appointment',
-    isRead: false,
+    templateType: 'appointment',
+    read: false,
     createdAt: formatDateTime(getDateDaysAgo(2)),
   },
   {
     id: generateId(),
     senderId: 'editor-1',
+    senderName: getUserName('editor-1'),
+    senderRole: getUserRole('editor-1'),
     receiverId: 'author-4',
+    receiverName: getUserName('author-4'),
     workId: 'work-4',
     workTitle: '云海仙踪',
-    type: 'reminder',
     content: '您好，注意到《云海仙踪》近日更新节奏有所放缓，目前存稿 2 章。建议合理安排时间，如有困难随时沟通~',
-    template: 'reminder',
-    isRead: true,
+    templateType: 'reminder',
+    read: true,
     createdAt: formatDateTime(getDateDaysAgo(3)),
   },
   {
     id: generateId(),
     senderId: 'author-5',
+    senderName: getUserName('author-5'),
+    senderRole: getUserRole('author-5'),
     receiverId: 'editor-1',
+    receiverName: getUserName('editor-1'),
     workId: 'work-5',
     workTitle: '盛世长安',
-    type: 'reminder',
     content: leaveReasons[0],
-    template: 'reminder',
-    isRead: false,
+    read: false,
     createdAt: formatDateTime(getDateDaysAgo(0)),
   },
   {
     id: generateId(),
     senderId: 'author-6',
+    senderName: getUserName('author-6'),
+    senderRole: getUserRole('author-6'),
     receiverId: 'editor-2',
+    receiverName: getUserName('editor-2'),
     workId: 'work-6',
     workTitle: '彼岸花开',
-    type: 'reminder',
     content: leaveReasons[1],
-    template: 'reminder',
-    isRead: true,
+    read: true,
     createdAt: formatDateTime(getDateDaysAgo(1)),
   },
   {
     id: generateId(),
     senderId: 'editor-1',
+    senderName: getUserName('editor-1'),
+    senderRole: getUserRole('editor-1'),
     receiverId: 'author-7',
+    receiverName: getUserName('author-7'),
     workId: 'work-7',
     workTitle: '龙行天下',
-    type: 'suggestion',
     content: '建议：1) 先发一章番外稳住读者 2) 将长章拆分为两章发布 3) 提前发单章说明情况。您可以根据实际情况选择~',
-    template: 'suggestion',
-    isRead: true,
+    templateType: 'suggestion',
+    read: true,
     createdAt: formatDateTime(getDateDaysAgo(4)),
   },
   {
     id: generateId(),
-    senderId: 'author-8',
+    senderId: 'author-7',
+    senderName: getUserName('author-7'),
+    senderRole: getUserRole('author-7'),
     receiverId: 'editor-1',
+    receiverName: getUserName('editor-1'),
+    workId: 'work-7',
+    workTitle: '龙行天下',
+    content: '好的，感谢建议！我已经准备了两章番外，这两天就发出来。后续我会调整更新节奏，保证稳定更新。',
+    read: true,
+    createdAt: formatDateTime(getDateDaysAgo(3)),
+  },
+  {
+    id: generateId(),
+    senderId: 'editor-1',
+    senderName: getUserName('editor-1'),
+    senderRole: getUserRole('editor-1'),
+    receiverId: 'author-7',
+    receiverName: getUserName('author-7'),
+    workId: 'work-7',
+    workTitle: '龙行天下',
+    content: '太好了！看到你已经恢复更新节奏，近三天日均码字都在5000以上，存稿也回到5章了，继续保持~',
+    read: true,
+    createdAt: formatDateTime(getDateDaysAgo(2)),
+  },
+  {
+    id: generateId(),
+    senderId: 'author-8',
+    senderName: getUserName('author-8'),
+    senderRole: getUserRole('author-8'),
+    receiverId: 'editor-1',
+    receiverName: getUserName('editor-1'),
     workId: 'work-8',
     workTitle: '凤舞九天',
-    type: 'appointment',
     content: '周四下午3点可以，我们聊聊后续的更新计划。',
-    template: 'appointment',
-    isRead: false,
+    read: false,
     createdAt: formatDateTime(getDateDaysAgo(0)),
   },
   {
     id: generateId(),
     senderId: 'editor-2',
+    senderName: getUserName('editor-2'),
+    senderRole: getUserRole('editor-2'),
     receiverId: 'author-9',
+    receiverName: getUserName('author-9'),
     workId: 'work-9',
     workTitle: '锦绣山河',
-    type: 'reminder',
     content: '您好，注意到《锦绣山河》近日更新节奏有所放缓，目前存稿 1 章。建议合理安排时间，如有困难随时沟通~',
-    template: 'reminder',
-    isRead: true,
+    templateType: 'reminder',
+    read: true,
     createdAt: formatDateTime(getDateDaysAgo(5)),
   },
   {
     id: generateId(),
     senderId: 'editor-1',
+    senderName: getUserName('editor-1'),
+    senderRole: getUserRole('editor-1'),
     receiverId: 'author-10',
+    receiverName: getUserName('author-10'),
     workId: 'work-10',
     workTitle: '烟雨江南',
-    type: 'appointment',
     content: '关于《烟雨江南》的后续更新计划，想和您约个时间沟通一下。请问您本周什么时间段方便呢？',
-    template: 'appointment',
-    isRead: false,
+    templateType: 'appointment',
+    read: false,
     createdAt: formatDateTime(getDateDaysAgo(1)),
   },
 ];
@@ -347,5 +415,5 @@ export function getMessagesByUserId(userId: string): Message[] {
 }
 
 export function getUnreadMessageCount(userId: string): number {
-  return messages.filter(m => m.receiverId === userId && !m.isRead).length;
+  return messages.filter(m => m.receiverId === userId && !m.read).length;
 }

@@ -13,9 +13,7 @@ import { cn } from '../../lib/utils';
 export function Sidebar() {
   const { currentUser, logout } = useUserStore();
   const navigate = useNavigate();
-  const unreadCount = useMessageStore(state =>
-    currentUser ? state.getUnreadCount(currentUser.id) : 0
-  );
+  const unreadCount = useMessageStore(state => state.getUnreadCount());
 
   const handleLogout = () => {
     logout();
