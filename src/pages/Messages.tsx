@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Bell,
   Lightbulb,
@@ -7,6 +7,9 @@ import {
   Filter,
   Inbox,
   Send,
+  BookOpen,
+  MessageSquare,
+  ChevronRight,
 } from 'lucide-react';
 import { useMessageStore } from '../store/useMessageStore';
 import { useUserStore } from '../store/useUserStore';
@@ -49,6 +52,14 @@ const typeColors: Record<MessageType, {
   },
 };
 
+interface WorkMessageGroup {
+  workId: string;
+  workTitle: string;
+  messages: Message[];
+  latestMessage: Message;
+  unreadCount: number;
+}
+
 export function Messages() {
   const { currentUser } = useUserStore();
   const {
@@ -61,9 +72,10 @@ export function Messages() {
     markAllAsRead,
   } = useMessageStore();
 
-  const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
+  const [selectedWorkId, setSelectedWorkId] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const messages = currentUser ? getFilteredMessages(currentUser.id) : [];
+  const allMessages = currentUser ? getFilteredMessages(currentUser.id) : [];
   const unreadCount = currentUser ? useMessageStore.getState().getUnreadCount(currentUser.id) : 0;
 
   const typeFilters = [
@@ -79,10 +91,54 @@ export function Messages() {
     { value: 'read', label: '已读' },
   ];
 
-  const handleSelectMessage = (message: Message) => {
-    setSelectedMessage(message);
-    if (!message.isRead && currentUser && message.receiverId === currentUser.id) {
-      markAsRead(message.id);
+  const workGroups = (() => {
+    const groupsMap = new Map<string, WorkMessageGroup>();
+    allMessages.forEach((msg) => {
+      const existing = groupsMap.get(msg.workId);
+      const isUnread = !msg.isRead && currentUser && msg.receiverId === currentUser.id;
+      if (existing) {
+        existing.messages.push(msg);
+        if (isUnread) existing.unreadCount++;
+        if (new Date(msg.createdAt) > new Date(existing.latestMessage.createdAt)) {
+          existing.latestMessage = msg;
+        }
+      } else {
+        groupsMap.set(msg.workId, {
+          workId: msg.workId,
+          workTitle: msg.workTitle,
+          messages: [msg],
+          latestMessage: msg,
+          unreadCount: isUnread ? 1 : 0,
+        });
+      }
+    });
+    return Array.from(groupsMap.values()).sort(
+      (a, b) =>
+        new Date(b.latestMessage.createdAt).getTime() -
+        new Date(a.latestMessage.createdAt).getTime()
+    );
+  })();
+
+  const selectedGroup = selectedWorkId ? workGroups.find(g => g.workId === selectedWorkId) || null : null;
+  const selectedMessages = useMemo(() => (
+    selectedGroup
+      ? [...selectedGroup.messages.sort((a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        )]
+      : []
+  ), [selectedGroup]);
+
+  const handleSelectWork = (groupId: string) => {
+    setSelectedWorkId(groupId);
+    if (currentUser) {
+      const group = workGroups.find(g => g.workId === groupId);
+      if (group) {
+        group.messages.forEach(msg => {
+          if (!msg.isRead && msg.receiverId === currentUser.id) {
+            markAsRead(msg.id);
+          }
+        });
+      }
     }
   };
 
@@ -92,21 +148,19 @@ export function Messages() {
     }
   };
 
-  const getMessageSender = (message: Message) => {
-    if (message.senderId.startsWith('editor')) {
+  const getMessageUser = (userId: string) => {
+    if (userId.startsWith('editor')) {
       return { name: '编辑', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=editor' };
     }
-    const author = getAuthorById(message.senderId);
+    const author = getAuthorById(userId);
     return author ? { name: author.name, avatar: author.avatar } : { name: '未知', avatar: '' };
   };
 
-  const getMessageReceiver = (message: Message) => {
-    if (message.receiverId.startsWith('editor')) {
-      return { name: '编辑', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=editor' };
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-    const author = getAuthorById(message.receiverId);
-    return author ? { name: author.name, avatar: author.avatar } : { name: '未知', avatar: '' };
-  };
+  }, [selectedMessages]);
 
   return (
     <div className="space-y-8">
@@ -119,7 +173,7 @@ export function Messages() {
             消息中心
           </h1>
           <p className="text-stone-500 mt-2">
-            查看与编辑的沟通记录
+            查看与编辑/作者的沟通记录
             {unreadCount > 0 && (
               <span className="ml-2 text-rose-500">{unreadCount} 条未读消息</span>
             )}
@@ -184,74 +238,73 @@ export function Messages() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1 bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden">
           <div className="p-4 border-b border-stone-100">
-            <h3 className="font-semibold text-stone-800">消息列表</h3>
+            <h3 className="font-semibold text-stone-800 flex items-center gap-2">
+              <BookOpen className="w-5 h-5 text-[#1e3a5f]" />
+              按作品分组
+              <span className="text-xs text-stone-400 ml-auto">{workGroups.length} 个作品</span>
+            </h3>
           </div>
-          <div className="divide-y divide-stone-100 max-h-[600px] overflow-y-auto">
-            {messages.length === 0 ? (
+          <div className="divide-y divide-stone-100 max-h-[600px] overflow-y-auto scrollbar-thin">
+            {workGroups.length === 0 ? (
               <div className="p-12 text-center text-stone-500">
                 暂无消息
               </div>
             ) : (
-              messages.map((message) => {
-                const Icon = typeIcons[message.type];
-                const colors = typeColors[message.type];
-                const sender = getMessageSender(message);
-                const isSent = currentUser && message.senderId === currentUser.id;
-                const isSelected = selectedMessage?.id === message.id;
+              workGroups.map((group) => {
+                const sender = getMessageUser(group.latestMessage.senderId);
+                const isSelected = selectedWorkId === group.workId;
+                const isSent = currentUser && group.latestMessage.senderId === currentUser.id;
 
                 return (
                   <button
-                    key={message.id}
-                    onClick={() => handleSelectMessage(message)}
+                    key={group.workId}
+                    onClick={() => handleSelectWork(group.workId)}
                     className={cn(
                       'w-full p-4 text-left transition-all hover:bg-stone-50',
-                      isSelected && 'bg-stone-50',
-                      !message.isRead && currentUser && message.receiverId === currentUser.id && 'bg-blue-50/50'
+                      isSelected && 'bg-stone-50'
                     )}
                   >
                     <div className="flex gap-3">
                       <div className="relative">
-                        <img
-                          src={isSent ? currentUser?.avatar : sender.avatar}
-                          alt=""
-                          className="w-10 h-10 rounded-full bg-stone-100"
-                        />
-                        <div
-                          className={cn(
-                            'absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full flex items-center justify-center',
-                            colors.bg
-                          )}
-                        >
-                          <Icon className={cn('w-3 h-3', colors.icon)} />
+                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#1e3a5f] to-[#2d4a6f] flex items-center justify-center flex-shrink-0">
+                          <BookOpen className="w-6 h-6 text-white/80" />
                         </div>
-                        {!message.isRead && currentUser && message.receiverId === currentUser.id && (
-                          <span className="absolute -top-0.5 -left-0.5 w-3 h-3 bg-rose-500 rounded-full border-2 border-white" />
+                        {group.unreadCount > 0 && (
+                          <span className="absolute -top-1 -right-1 min-w-[20px] h-5 bg-rose-500 text-white text-xs font-bold rounded-full flex items-center justify-center px-1.5">
+                            {group.unreadCount > 9 ? '9+' : group.unreadCount}
+                          </span>
                         )}
                       </div>
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="font-medium text-stone-800 text-sm">
-                            {isSent ? (
-                              <span className="flex items-center gap-1">
-                                <Send className="w-3 h-3 text-stone-400" />
-                                发送给 {getMessageReceiver(message).name}
-                              </span>
-                            ) : (
-                              `来自 ${sender.name}`
-                            )}
-                          </span>
-                          <span className="text-xs text-stone-400">
-                            {formatRelativeTime(message.createdAt)}
+                          <p className="font-semibold text-stone-800 truncate">
+                            《{group.workTitle}》
+                          </p>
+                          <span className="text-xs text-stone-400 flex-shrink-0 ml-2">
+                            {formatRelativeTime(group.latestMessage.createdAt)}
                           </span>
                         </div>
-                        <p className="text-sm font-medium text-stone-700 truncate">
-                          《{message.workTitle}》
-                        </p>
-                        <p className="text-xs text-stone-500 truncate mt-0.5">
-                          {message.content}
-                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <MessageSquare className="w-3.5 h-3.5 text-stone-400 flex-shrink-0" />
+                          <p className="text-xs text-stone-400 truncate">
+                            {isSent ? (
+                              <span className="flex items-center gap-1">
+                                <Send className="w-3 h-3 inline" />
+                                我：
+                              </span>
+                            ) : (
+                              <span>{sender.name}：</span>
+                            )}
+                            {group.latestMessage.content}
+                          </p>
+                        </div>
                       </div>
+
+                      <ChevronRight className={cn(
+                        'w-4 h-4 flex-shrink-0 transition-colors',
+                        isSelected ? 'text-[#1e3a5f]' : 'text-stone-300'
+                      )} />
                     </div>
                   </button>
                 );
@@ -261,66 +314,113 @@ export function Messages() {
         </div>
 
         <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden">
-          {selectedMessage ? (
+          {selectedGroup ? (
             <div className="h-[600px] flex flex-col">
-              <div className="p-6 border-b border-stone-100">
+              <div className="p-6 border-b border-stone-100 bg-gradient-to-r from-[#1e3a5f]/5 to-transparent">
                 <div className="flex items-center gap-4">
-                  <div className="relative">
-                    <img
-                      src={getMessageSender(selectedMessage).avatar}
-                      alt=""
-                      className="w-12 h-12 rounded-full bg-stone-100"
-                    />
-                    <div
-                      className={cn(
-                        'absolute -bottom-0.5 -right-0.5 w-6 h-6 rounded-full flex items-center justify-center',
-                        typeColors[selectedMessage.type].bg
-                      )}
-                    >
-                      {(() => {
-                        const Icon = typeIcons[selectedMessage.type];
-                        return <Icon className={cn('w-3.5 h-3.5', typeColors[selectedMessage.type].icon)} />;
-                      })()}
-                    </div>
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-[#1e3a5f] to-[#2d4a6f] flex items-center justify-center">
+                    <BookOpen className="w-7 h-7 text-white/80" />
                   </div>
                   <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-bold text-stone-800">
-                        {getMessageSender(selectedMessage).name}
-                      </h3>
-                      <span
-                        className={cn(
-                          'px-2 py-0.5 rounded-full text-xs font-medium',
-                          typeColors[selectedMessage.type].bg,
-                          typeColors[selectedMessage.type].text
-                        )}
-                      >
-                        {typeLabels[selectedMessage.type]}
-                      </span>
-                    </div>
+                    <h3
+                      className="font-bold text-stone-800 text-lg"
+                      style={{ fontFamily: "'Source Han Serif SC', serif" }}
+                    >
+                      《{selectedGroup.workTitle}》
+                    </h3>
                     <p className="text-sm text-stone-500">
-                      关于《{selectedMessage.workTitle}》
+                      共 {selectedGroup.messages.length} 条沟通记录
                     </p>
                   </div>
-                  <span className="text-sm text-stone-400">
-                    {selectedMessage.createdAt}
-                  </span>
+                  {selectedGroup.unreadCount > 0 && (
+                    <span className="px-3 py-1 bg-rose-100 text-rose-600 rounded-full text-xs font-medium">
+                      {selectedGroup.unreadCount} 条未读
+                    </span>
+                  )}
                 </div>
               </div>
 
-              <div className="flex-1 p-6 overflow-y-auto">
-                <div className="bg-stone-50 rounded-2xl p-6 max-w-2xl">
-                  <p className="text-stone-700 leading-relaxed whitespace-pre-wrap">
-                    {selectedMessage.content}
-                  </p>
-                </div>
+              <div className="flex-1 p-6 overflow-y-auto scrollbar-thin bg-stone-50/50 space-y-4">
+                {selectedMessages.map((message, idx) => {
+                  const isMe = currentUser && message.senderId === currentUser.id;
+                  const user = getMessageUser(message.senderId);
+                  const Icon = typeIcons[message.type];
+                  const colors = typeColors[message.type];
+                  const prevMessage = idx > 0 ? selectedMessages[idx - 1] : null;
+                  const showDateDivider =
+                    !prevMessage ||
+                    prevMessage.createdAt.slice(0, 10) !== message.createdAt.slice(0, 10);
+
+                  return (
+                    <div key={message.id}>
+                      {showDateDivider && (
+                        <div className="flex items-center gap-4 my-6">
+                          <div className="flex-1 h-px bg-stone-200" />
+                          <span className="text-xs text-stone-400">
+                            {message.createdAt.slice(0, 10)}
+                          </span>
+                          <div className="flex-1 h-px bg-stone-200" />
+                        </div>
+                      )}
+
+                      <div className={cn(
+                        'flex gap-3',
+                        isMe ? 'flex-row-reverse' : ''
+                      )}>
+                        <img
+                          src={user.avatar}
+                          alt={user.name}
+                          className="w-9 h-9 rounded-full bg-stone-200 flex-shrink-0"
+                        />
+                        <div className={cn(
+                          'max-w-[70%]',
+                          isMe ? 'items-end' : ''
+                        )}>
+                          <div className={cn(
+                            'flex items-center gap-2 mb-1 text-xs text-stone-500',
+                            isMe ? 'justify-end' : ''
+                          )}>
+                            <span className="font-medium text-stone-700">
+                              {isMe ? '我' : user.name}
+                            </span>
+                            <span
+                              className={cn(
+                                'inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded',
+                                colors.bg,
+                                colors.text
+                              )}
+                            >
+                              <Icon className="w-3 h-3" />
+                              {typeLabels[message.type]}
+                            </span>
+                            <span>{message.createdAt.slice(11, 16)}</span>
+                          </div>
+                          <div className={cn(
+                            'rounded-2xl px-4 py-3',
+                            isMe
+                              ? 'bg-[#1e3a5f] text-white rounded-tr-md'
+                              : 'bg-white border border-stone-200 text-stone-700 rounded-tl-md shadow-sm'
+                          )}>
+                            <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                              {message.content}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div ref={messagesEndRef} />
               </div>
             </div>
           ) : (
             <div className="h-[600px] flex items-center justify-center">
               <div className="text-center">
                 <Inbox className="w-16 h-16 text-stone-300 mx-auto mb-4" />
-                <p className="text-stone-500">选择一条消息查看详情</p>
+                <p className="text-stone-500">选择一个作品查看沟通记录</p>
+                <p className="text-xs text-stone-400 mt-1">
+                  同一作品下的来回消息会串在一起展示
+                </p>
               </div>
             </div>
           )}

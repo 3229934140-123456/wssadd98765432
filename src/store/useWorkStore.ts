@@ -1,19 +1,22 @@
 import { create } from 'zustand';
-import type { Work, DailyStatus, UpdateStatus } from '../types/work';
+import type { Work, DailyStatus, UpdateStatus, FollowupStatus } from '../types/work';
 import { works, getDailyStatusesByWorkId } from '../utils/mockData';
-import { calculateRiskLevel } from '../utils/riskCalculator';
-import { formatDate, formatDateTime } from '../utils/dateUtils';
+import { calculateRiskLevel, calculateRiskReasons } from '../utils/riskCalculator';
+import { formatDate, formatDateTime, formatTime } from '../utils/dateUtils';
 
 interface WorkState {
   works: Work[];
   dailyStatuses: Record<string, DailyStatus[]>;
   searchQuery: string;
   filterRisk: string;
+  filterFollowup: string;
   setSearchQuery: (query: string) => void;
   setFilterRisk: (risk: string) => void;
+  setFilterFollowup: (followup: string) => void;
   getFilteredWorks: () => Work[];
   getWorkById: (id: string) => Work | undefined;
   getDailyStatuses: (workId: string) => DailyStatus[];
+  updateFollowupStatus: (workId: string, status: FollowupStatus) => void;
   submitDailyStatus: (workId: string, data: {
     wordCount: number;
     draftCount: number;
@@ -35,17 +38,20 @@ export const useWorkStore = create<WorkState>((set, get) => ({
   }, {} as Record<string, DailyStatus[]>),
   searchQuery: '',
   filterRisk: 'all',
+  filterFollowup: 'all',
 
   setSearchQuery: (query) => set({ searchQuery: query }),
   setFilterRisk: (risk) => set({ filterRisk: risk }),
+  setFilterFollowup: (followup) => set({ filterFollowup: followup }),
 
   getFilteredWorks: () => {
-    const { works, searchQuery, filterRisk } = get();
+    const { works, searchQuery, filterRisk, filterFollowup } = get();
     return works.filter(work => {
       const matchesSearch = work.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         work.authorName.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesRisk = filterRisk === 'all' || work.riskLevel === filterRisk;
-      return matchesSearch && matchesRisk;
+      const matchesFollowup = filterFollowup === 'all' || work.followupStatus === filterFollowup;
+      return matchesSearch && matchesRisk && matchesFollowup;
     }).sort((a, b) => {
       const riskOrder = { red: 0, yellow: 1, green: 2 };
       return riskOrder[a.riskLevel] - riskOrder[b.riskLevel];
@@ -56,8 +62,23 @@ export const useWorkStore = create<WorkState>((set, get) => ({
 
   getDailyStatuses: (workId) => get().dailyStatuses[workId] || [],
 
+  updateFollowupStatus: (workId, status) => {
+    set(state => ({
+      works: state.works.map(w =>
+        w.id === workId ? { ...w, followupStatus: status } : w
+      ),
+    }));
+  },
+
   submitDailyStatus: (workId, data) => {
     const today = formatDate(new Date());
+    const now = new Date();
+
+    let publishTime: string | undefined;
+    if (data.updateStatus === 'published') {
+      publishTime = formatTime(now);
+    }
+
     const newStatus: DailyStatus = {
       id: generateId(),
       workId,
@@ -65,9 +86,10 @@ export const useWorkStore = create<WorkState>((set, get) => ({
       wordCount: data.wordCount,
       draftCount: data.draftCount,
       updateStatus: data.updateStatus,
+      publishTime,
       onLeave: data.onLeave,
       leaveReason: data.leaveReason,
-      createdAt: formatDateTime(new Date()),
+      createdAt: formatDateTime(now),
     };
 
     set(state => {
@@ -78,7 +100,8 @@ export const useWorkStore = create<WorkState>((set, get) => ({
       const updatedWorks = state.works.map(w => {
         if (w.id === workId) {
           const newRiskLevel = calculateRiskLevel(updatedStatuses);
-          return { ...w, riskLevel: newRiskLevel };
+          const newRiskReasons = calculateRiskReasons(updatedStatuses);
+          return { ...w, riskLevel: newRiskLevel, riskReasons: newRiskReasons };
         }
         return w;
       });

@@ -1,8 +1,8 @@
 import type { User } from '../types/user';
-import type { Work, DailyStatus, UpdateStatus } from '../types/work';
+import type { Work, DailyStatus, UpdateStatus, FollowupStatus } from '../types/work';
 import type { Message, MessageTemplate } from '../types/message';
 import { formatDate, formatDateTime, formatTime, getDateDaysAgo } from './dateUtils';
-import { calculateRiskLevel } from './riskCalculator';
+import { calculateRiskLevel, calculateRiskReasons } from './riskCalculator';
 
 function generateId(): string {
   return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
@@ -136,6 +136,12 @@ const riskPatterns: Array<'green' | 'yellow' | 'red'> = [
   'green', 'green', 'green', 'green', 'green', 'green', 'green',
 ];
 
+const followupPatterns: FollowupStatus[] = [
+  'untreated', 'reminded', 'appointed',
+  'untreated', 'reminded', 'reminded', 'appointed', 'resolved',
+  'resolved', 'resolved', 'untreated', 'resolved', 'resolved', 'resolved', 'resolved',
+];
+
 workTitles.forEach((title, index) => {
   const author = authors[index % authors.length];
   const editor = editors[index % editors.length];
@@ -146,6 +152,7 @@ workTitles.forEach((title, index) => {
   dailyStatuses.push(...workStatuses);
 
   const riskLevel = calculateRiskLevel(workStatuses);
+  const riskReasons = calculateRiskReasons(workStatuses);
 
   works.push({
     id: workId,
@@ -158,6 +165,8 @@ workTitles.forEach((title, index) => {
     totalWords: 500000 + index * 30000 + Math.floor(Math.random() * 100000),
     status: 'ongoing',
     riskLevel,
+    riskReasons,
+    followupStatus: followupPatterns[index],
   });
 });
 

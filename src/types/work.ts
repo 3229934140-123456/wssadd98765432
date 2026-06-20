@@ -1,5 +1,13 @@
 export type RiskLevel = 'green' | 'yellow' | 'red';
 export type UpdateStatus = 'pending' | 'published' | 'delayed';
+export type FollowupStatus = 'untreated' | 'reminded' | 'appointed' | 'resolved';
+export type RiskReasonType = 'delayed_today' | 'low_draft' | 'word_decline' | 'on_leave';
+
+export interface RiskReason {
+  type: RiskReasonType;
+  label: string;
+  description: string;
+}
 
 export interface Work {
   id: string;
@@ -12,6 +20,8 @@ export interface Work {
   totalWords: number;
   status: 'ongoing' | 'completed';
   riskLevel: RiskLevel;
+  riskReasons: RiskReason[];
+  followupStatus: FollowupStatus;
 }
 
 export interface DailyStatus {
