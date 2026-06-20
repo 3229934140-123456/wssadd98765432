@@ -7,6 +7,8 @@ interface RiskCardProps {
   level: RiskLevel;
   count: number;
   label: string;
+  subLabel?: string;
+  archived?: boolean;
 }
 
 const riskConfig: Record<RiskLevel, {
@@ -59,7 +61,7 @@ function AnimatedNumber({ value }: { value: number }) {
   return <span>{display}</span>;
 }
 
-export function RiskCard({ level, count, label }: RiskCardProps) {
+export function RiskCard({ level, count, label, subLabel, archived = false }: RiskCardProps) {
   const config = riskConfig[level];
   const Icon = config.icon;
 
@@ -68,44 +70,61 @@ export function RiskCard({ level, count, label }: RiskCardProps) {
       className={cn(
         'relative overflow-hidden rounded-xl p-6 transition-all duration-300',
         'hover:shadow-lg hover:-translate-y-1',
-        'bg-white border border-stone-200'
+        archived
+          ? 'bg-stone-50 border border-stone-200 border-dashed'
+          : 'bg-white border border-stone-200'
       )}
       style={{ animation: 'fadeInUp 0.6s ease-out' }}
     >
-      <div
-        className={cn(
-          'absolute inset-0 opacity-50 bg-gradient-to-br',
-          config.gradient
-        )}
-        style={{
-          clipPath: 'polygon(0 0, 100% 0, 100% 30%, 0 60%)',
-        }}
-      />
+      {!archived && (
+        <div
+          className={cn(
+            'absolute inset-0 opacity-50 bg-gradient-to-br',
+            config.gradient
+          )}
+          style={{
+            clipPath: 'polygon(0 0, 100% 0, 100% 30%, 0 60%)',
+          }}
+        />
+      )}
 
       <div className="relative z-10">
         <div className="flex items-start justify-between mb-4">
           <div
             className={cn(
-              'w-12 h-12 rounded-xl flex items-center justify-center',
-              'bg-gradient-to-br',
-              config.gradient,
-              'shadow-lg'
+              'w-12 h-12 rounded-xl flex items-center justify-center shadow-lg',
+              archived
+                ? 'bg-stone-300'
+                : cn('bg-gradient-to-br', config.gradient)
             )}
           >
-            <Icon className="w-6 h-6 text-white" />
+            <Icon className={cn(
+              'w-6 h-6',
+              archived ? 'text-white/80' : 'text-white'
+            )} />
           </div>
           <span
             className={cn(
               'text-4xl font-bold',
-              config.textColor
+              archived ? 'text-stone-400' : config.textColor
             )}
           >
             <AnimatedNumber value={count} />
           </span>
         </div>
 
-        <p className="text-stone-600 font-medium text-lg">{label}</p>
-        <p className="text-stone-400 text-sm mt-1">部作品</p>
+        <p className={cn(
+          'font-medium text-lg',
+          archived ? 'text-stone-500' : 'text-stone-600'
+        )}>{label}</p>
+        {subLabel && (
+          <p className={cn(
+            'text-sm mt-1',
+            archived ? 'text-stone-400' : 'text-stone-400'
+          )}>
+            {subLabel}
+          </p>
+        )}
       </div>
     </div>
   );

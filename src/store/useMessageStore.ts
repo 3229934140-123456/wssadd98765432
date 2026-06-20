@@ -9,6 +9,7 @@ import {
 } from '../utils/storage';
 import { useWorkStore } from './useWorkStore';
 import { useUserStore } from './useUserStore';
+import type { FollowupStatus } from '../types/work';
 
 interface MessageState {
   messages: Message[];
@@ -34,13 +35,55 @@ function initializeMessages(): Message[] {
 
 const initialMessages = initializeMessages();
 
+function syncFollowupOnMessage(
+  workId: string,
+  content: string,
+  templateType?: MessageTemplateType
+) {
+  const { currentUser } = useUserStore.getState();
+  if (!currentUser) return;
+
+  const workStore = useWorkStore.getState();
+  const work = workStore.getWorkById(workId);
+  if (!work) return;
+
+  const oldStatus = work.followupStatus;
+
+  if (currentUser.role === 'editor') {
+    let newStatus: FollowupStatus = oldStatus;
+    if (templateType) {
+      newStatus = templateType === 'appointment' ? 'appointed' : 'reminded';
+    } else if (oldStatus === 'untreated' && work.riskLevel !== 'green') {
+      newStatus = 'reminded';
+    }
+
+    if (oldStatus !== newStatus) {
+      workStore.updateFollowupStatus(workId, newStatus);
+    } else {
+      workStore.addFollowupHistory(workId, 'message_sent', {
+        messageType: templateType || 'normal',
+        note: templateType ? undefined : content,
+      });
+    }
+  } else {
+    workStore.addFollowupHistory(workId, 'note', {
+      note: content,
+    });
+  }
+}
+
 export const useMessageStore = create<MessageState>((set, get) => ({
   messages: initialMessages,
 
   markAsRead: (workId) => {
+    const { currentUser } = useUserStore.getState();
+    if (!currentUser) return;
+
     set(state => {
       const newMessages = state.messages.map(m =>
-        m.workId === workId ? { ...m, read: true } : m
+        m.workId === workId && m.receiverId === currentUser.id
+          ? { ...m, read: true }
+          : m
       );
       saveToStorage(STORAGE_KEYS.MESSAGES, newMessages);
       return { messages: newMessages };
@@ -48,8 +91,13 @@ export const useMessageStore = create<MessageState>((set, get) => ({
   },
 
   markAllAsRead: () => {
+    const { currentUser } = useUserStore.getState();
+    if (!currentUser) return;
+
     set(state => {
-      const newMessages = state.messages.map(m => ({ ...m, read: true }));
+      const newMessages = state.messages.map(m =>
+        m.receiverId === currentUser.id ? { ...m, read: true } : m
+      );
       saveToStorage(STORAGE_KEYS.MESSAGES, newMessages);
       return { messages: newMessages };
     });
@@ -107,6 +155,8 @@ export const useMessageStore = create<MessageState>((set, get) => ({
       saveToStorage(STORAGE_KEYS.MESSAGES, newMessages);
       return { messages: newMessages };
     });
+
+    syncFollowupOnMessage(workId, content, templateType);
   },
 
   sendTemplateMessage: (workId, templateType) => {
@@ -118,20 +168,5 @@ export const useMessageStore = create<MessageState>((set, get) => ({
 
     const content = templates[templateType];
     get().sendMessage(workId, content, templateType);
-
-    const { addFollowupHistory, updateFollowupStatus } = useWorkStore.getState();
-    const work = useWorkStore.getState().getWorkById(workId);
-    if (!work) return;
-
-    const oldStatus = work.followupStatus;
-    const newStatus = templateType === 'appointment' ? 'appointed' : 'reminded';
-
-    if (oldStatus !== newStatus) {
-      updateFollowupStatus(workId, newStatus);
-    } else {
-      addFollowupHistory(workId, 'message_sent', {
-        messageType: templateType,
-      });
-    }
   },
 }));
