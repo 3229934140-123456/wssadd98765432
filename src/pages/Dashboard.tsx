@@ -10,10 +10,12 @@ export function Dashboard() {
   const stats = useMemo(() => {
     const pendingRed = works.filter(w => w.riskLevel === 'red' && w.followupStatus !== 'resolved').length;
     const pendingYellow = works.filter(w => w.riskLevel === 'yellow' && w.followupStatus !== 'resolved').length;
-    const resolvedRed = works.filter(w => w.riskLevel === 'red' && w.followupStatus === 'resolved').length;
-    const resolvedYellow = works.filter(w => w.riskLevel === 'yellow' && w.followupStatus === 'resolved').length;
-    const green = works.filter(w => w.riskLevel === 'green').length;
-    const totalResolved = resolvedRed + resolvedYellow;
+    const resolvedWorks = works.filter(w => w.followupStatus === 'resolved');
+    const resolvedRed = resolvedWorks.filter(w => w.riskLevel === 'red').length;
+    const resolvedYellow = resolvedWorks.filter(w => w.riskLevel === 'yellow').length;
+    const resolvedGreen = resolvedWorks.filter(w => w.riskLevel === 'green').length;
+    const green = works.filter(w => w.riskLevel === 'green' && w.followupStatus !== 'resolved').length;
+    const totalResolved = resolvedWorks.length;
     const totalPending = pendingRed + pendingYellow;
 
     return {
@@ -21,6 +23,7 @@ export function Dashboard() {
       pendingYellow,
       resolvedRed,
       resolvedYellow,
+      resolvedGreen,
       green,
       totalResolved,
       totalPending,
@@ -83,19 +86,26 @@ export function Dashboard() {
             {stats.totalResolved} 部
           </span>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <RiskCard
             level="red"
             count={stats.resolvedRed}
-            label="红色风险（已解决）"
-            subLabel="曾经的高风险，现已解决"
+            label="红色风险（已归档）"
+            subLabel="高风险历史，现已解决"
             archived
           />
           <RiskCard
             level="yellow"
             count={stats.resolvedYellow}
-            label="黄色预警（已解决）"
-            subLabel="曾经的预警，现已处理"
+            label="黄色预警（已归档）"
+            subLabel="预警历史，现已处理"
+            archived
+          />
+          <RiskCard
+            level="green"
+            count={stats.resolvedGreen}
+            label="已恢复稳定（归档）"
+            subLabel="风险解除，恢复正常"
             archived
           />
         </div>

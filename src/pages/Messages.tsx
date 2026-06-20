@@ -10,6 +10,9 @@ import {
   BookOpen,
   MessageSquare,
   ChevronRight,
+  Search,
+  X,
+  Highlighter,
 } from 'lucide-react';
 import { useMessageStore } from '../store/useMessageStore';
 import { useUserStore } from '../store/useUserStore';
@@ -60,6 +63,43 @@ interface WorkMessageGroup {
   unreadCount: number;
 }
 
+function HighlightText({ text, keyword }: { text: string; keyword: string }) {
+  if (!keyword.trim()) return <>{text}</>;
+
+  const lowerText = text.toLowerCase();
+  const lowerKeyword = keyword.toLowerCase();
+  const parts: { text: string; highlight: boolean }[] = [];
+  let lastIndex = 0;
+  let index = lowerText.indexOf(lowerKeyword);
+
+  while (index !== -1) {
+    if (index > lastIndex) {
+      parts.push({ text: text.slice(lastIndex, index), highlight: false });
+    }
+    parts.push({ text: text.slice(index, index + keyword.length), highlight: true });
+    lastIndex = index + keyword.length;
+    index = lowerText.indexOf(lowerKeyword, lastIndex);
+  }
+
+  if (lastIndex < text.length) {
+    parts.push({ text: text.slice(lastIndex), highlight: false });
+  }
+
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.highlight ? (
+          <span key={i} className="bg-amber-200 text-amber-900 px-0.5 rounded font-medium">
+            {part.text}
+          </span>
+        ) : (
+          <span key={i}>{part.text}</span>
+        )
+      )}
+    </>
+  );
+}
+
 export function Messages() {
   const { currentUser } = useUserStore();
   const {
@@ -75,7 +115,10 @@ export function Messages() {
   const [newMessage, setNewMessage] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [filterRead, setFilterRead] = useState('all');
+  const [workSearch, setWorkSearch] = useState('');
+  const [chatSearch, setChatSearch] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatSearchRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const unreadCount = getUnreadCount();
@@ -107,6 +150,11 @@ export function Messages() {
       if (filterRead === 'unread' && !isUnread) return;
       if (filterRead === 'read' && isUnread) return;
 
+      if (workSearch.trim()) {
+        const keyword = workSearch.toLowerCase();
+        if (!msg.workTitle.toLowerCase().includes(keyword)) return;
+      }
+
       const existing = groupsMap.get(msg.workId);
       if (existing) {
         existing.messages.push(msg);
@@ -129,7 +177,7 @@ export function Messages() {
         new Date(b.latestMessage.createdAt).getTime() -
         new Date(a.latestMessage.createdAt).getTime()
     );
-  }, [messages, currentUser, filterType, filterRead]);
+  }, [messages, currentUser, filterType, filterRead, workSearch]);
 
   const selectedMessages = useMemo(() => (
     selectedWorkId
@@ -137,10 +185,20 @@ export function Messages() {
       : []
   ), [selectedWorkId, getMessagesByWorkSorted]);
 
+  const filteredChatMessages = useMemo(() => {
+    if (!chatSearch.trim()) return selectedMessages;
+    const keyword = chatSearch.toLowerCase();
+    return selectedMessages.filter(m =>
+      m.content.toLowerCase().includes(keyword) ||
+      m.senderName.toLowerCase().includes(keyword)
+    );
+  }, [selectedMessages, chatSearch]);
+
   const selectedGroup = selectedWorkId ? workGroups.find(g => g.workId === selectedWorkId) || null : null;
 
   const handleSelectWork = (groupId: string) => {
     setSelectedWorkId(groupId);
+    setChatSearch('');
     markAsRead(groupId);
   };
 
@@ -171,10 +229,10 @@ export function Messages() {
   };
 
   useEffect(() => {
-    if (messagesEndRef.current) {
+    if (messagesEndRef.current && !chatSearch.trim()) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [selectedMessages]);
+  }, [selectedMessages, chatSearch]);
 
   if (!currentUser) {
     return <div className="text-center py-20 text-stone-500">请先登录</div>;
@@ -254,18 +312,36 @@ export function Messages() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1 bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden">
-          <div className="p-4 border-b border-stone-100">
+        <div className="lg:col-span-1 bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden flex flex-col">
+          <div className="p-4 border-b border-stone-100 space-y-3">
             <h3 className="font-semibold text-stone-800 flex items-center gap-2">
               <BookOpen className="w-5 h-5 text-[#1e3a5f]" />
               按作品分组
               <span className="text-xs text-stone-400 ml-auto">{workGroups.length} 个作品</span>
             </h3>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+              <input
+                type="text"
+                value={workSearch}
+                onChange={(e) => setWorkSearch(e.target.value)}
+                placeholder="搜索作品..."
+                className="w-full pl-9 pr-8 py-2 text-sm rounded-lg border border-stone-200 focus:border-[#1e3a5f] focus:ring-1 focus:ring-[#1e3a5f] outline-none"
+              />
+              {workSearch && (
+                <button
+                  onClick={() => setWorkSearch('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-600"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           </div>
-          <div className="divide-y divide-stone-100 max-h-[600px] overflow-y-auto scrollbar-thin">
+          <div className="divide-y divide-stone-100 flex-1 overflow-y-auto max-h-[550px] scrollbar-thin">
             {workGroups.length === 0 ? (
               <div className="p-12 text-center text-stone-500">
-                暂无消息
+                {workSearch ? '未找到匹配的作品' : '暂无消息'}
               </div>
             ) : (
               workGroups.map((group) => {
@@ -297,7 +373,7 @@ export function Messages() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between mb-1">
                           <p className="font-semibold text-stone-800 truncate">
-                            《{group.workTitle}》
+                            <HighlightText text={`《${group.workTitle}》`} keyword={workSearch} />
                           </p>
                           <span className="text-xs text-stone-400 flex-shrink-0 ml-2">
                             {formatRelativeTime(group.latestMessage.createdAt)}
@@ -331,25 +407,61 @@ export function Messages() {
           </div>
         </div>
 
-        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden">
+        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden flex flex-col">
           {selectedGroup ? (
-            <div className="h-[600px] flex flex-col">
-              <div className="p-6 border-b border-stone-100 bg-gradient-to-r from-[#1e3a5f]/5 to-transparent">
+            <div className="h-[550px] flex flex-col">
+              <div className="p-4 border-b border-stone-100 bg-gradient-to-r from-[#1e3a5f]/5 to-transparent">
                 <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-[#1e3a5f] to-[#2d4a6f] flex items-center justify-center">
-                    <BookOpen className="w-7 h-7 text-white/80" />
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#1e3a5f] to-[#2d4a6f] flex items-center justify-center flex-shrink-0">
+                    <BookOpen className="w-6 h-6 text-white/80" />
                   </div>
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <h3
-                      className="font-bold text-stone-800 text-lg"
+                      className="font-bold text-stone-800 text-base truncate"
                       style={{ fontFamily: "'Source Han Serif SC', serif" }}
                     >
                       《{selectedGroup.workTitle}》
                     </h3>
-                    <p className="text-sm text-stone-500">
+                    <p className="text-xs text-stone-500">
                       共 {selectedMessages.length} 条沟通记录
                     </p>
                   </div>
+                  <div className="relative">
+                    <button
+                      onClick={() => chatSearchRef.current?.classList.toggle('hidden')}
+                      className="p-2 rounded-lg hover:bg-stone-100 text-stone-500 hover:text-stone-700 transition-colors"
+                    >
+                      <Search className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                <div
+                  ref={chatSearchRef}
+                  className="mt-3 hidden"
+                >
+                  <div className="relative">
+                    <Highlighter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+                    <input
+                      type="text"
+                      value={chatSearch}
+                      onChange={(e) => setChatSearch(e.target.value)}
+                      placeholder="搜索会话内的消息..."
+                      className="w-full pl-9 pr-8 py-2 text-sm rounded-lg border border-stone-200 focus:border-[#1e3a5f] focus:ring-1 focus:ring-[#1e3a5f] outline-none"
+                    />
+                    {chatSearch && (
+                      <button
+                        onClick={() => setChatSearch('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-600"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  {chatSearch && (
+                    <p className="mt-2 text-xs text-stone-400">
+                      找到 {filteredChatMessages.length} 条匹配的消息
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -362,11 +474,20 @@ export function Messages() {
                       <p className="text-xs text-stone-400 mt-1">发送第一条消息开始沟通</p>
                     </div>
                   </div>
+                ) : chatSearch.trim() && filteredChatMessages.length === 0 ? (
+                  <div className="h-full flex items-center justify-center">
+                    <div className="text-center">
+                      <Search className="w-12 h-12 text-stone-300 mx-auto mb-3" />
+                      <p className="text-stone-500">未找到匹配的消息</p>
+                      <p className="text-xs text-stone-400 mt-1">试试其他关键词</p>
+                    </div>
+                  </div>
                 ) : (
-                  selectedMessages.map((message, idx) => {
+                  (chatSearch.trim() ? filteredChatMessages : selectedMessages).map((message, idx) => {
                     const isMe = message.senderId === currentUser.id;
                     const user = getMessageUser(message.senderId);
-                    const prevMessage = idx > 0 ? selectedMessages[idx - 1] : null;
+                    const allMessages = chatSearch.trim() ? filteredChatMessages : selectedMessages;
+                    const prevMessage = idx > 0 ? allMessages[idx - 1] : null;
                     const showDateDivider =
                       !prevMessage ||
                       prevMessage.createdAt.slice(0, 10) !== message.createdAt.slice(0, 10);
@@ -427,7 +548,7 @@ export function Messages() {
                                 : 'bg-white border border-stone-200 text-stone-700 rounded-tl-md shadow-sm'
                             )}>
                               <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                                {message.content}
+                                <HighlightText text={message.content} keyword={chatSearch} />
                               </p>
                             </div>
                           </div>
@@ -465,7 +586,7 @@ export function Messages() {
               </div>
             </div>
           ) : (
-            <div className="h-[600px] flex items-center justify-center">
+            <div className="h-[550px] flex items-center justify-center">
               <div className="text-center">
                 <Inbox className="w-16 h-16 text-stone-300 mx-auto mb-4" />
                 <p className="text-stone-500">选择一个作品查看沟通记录</p>

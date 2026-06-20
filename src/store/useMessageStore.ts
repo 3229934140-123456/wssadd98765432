@@ -48,16 +48,20 @@ function syncFollowupOnMessage(
   if (!work) return;
 
   const oldStatus = work.followupStatus;
+  const isResolved = oldStatus === 'resolved';
 
   if (currentUser.role === 'editor') {
     let newStatus: FollowupStatus = oldStatus;
-    if (templateType) {
-      newStatus = templateType === 'appointment' ? 'appointed' : 'reminded';
-    } else if (oldStatus === 'untreated' && work.riskLevel !== 'green') {
-      newStatus = 'reminded';
+
+    if (!isResolved) {
+      if (templateType) {
+        newStatus = templateType === 'appointment' ? 'appointed' : 'reminded';
+      } else if (oldStatus === 'untreated' && work.riskLevel !== 'green') {
+        newStatus = 'reminded';
+      }
     }
 
-    if (oldStatus !== newStatus) {
+    if (!isResolved && oldStatus !== newStatus) {
       workStore.updateFollowupStatus(workId, newStatus);
     } else {
       workStore.addFollowupHistory(workId, 'message_sent', {

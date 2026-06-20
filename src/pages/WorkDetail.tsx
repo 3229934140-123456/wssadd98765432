@@ -15,14 +15,14 @@ import {
   Bell,
   Lightbulb,
   CalendarCheck,
-  History,
   CheckSquare,
   X,
   Edit3,
   MessageCircle,
   Target,
-  Layers,
-  ArrowRight,
+  LayoutDashboard,
+  Users,
+  BarChart3,
 } from 'lucide-react';
 import { useWorkStore } from '../store/useWorkStore';
 import { useMessageStore } from '../store/useMessageStore';
@@ -79,11 +79,13 @@ const actionTypeColors: Record<FollowupActionType, string> = {
   note: 'bg-amber-500',
 };
 
-type ReviewTimelineItem =
+type UnifiedTimelineItem =
   | { type: 'risk'; time: string; data: { label: string; description: string } }
   | { type: 'message'; time: string; data: Message }
   | { type: 'history'; time: string; data: FollowupHistory }
   | { type: 'resolution'; time: string; data: { note: string } };
+
+type TabType = 'overview' | 'collaboration' | 'review';
 
 function FollowupHistoryItem({ history }: { history: FollowupHistory }) {
   return (
@@ -133,29 +135,90 @@ function FollowupHistoryItem({ history }: { history: FollowupHistory }) {
   );
 }
 
-function ReviewTimeline({
+function MessageBubble({ message, isResolved }: { message: Message; isResolved?: boolean }) {
+  const isEditor = message.senderRole === 'editor';
+  return (
+    <div className="flex gap-4">
+      <div className="flex flex-col items-center">
+        <div className="w-3 h-3 rounded-full flex-shrink-0 bg-purple-500" />
+        <div className="w-0.5 flex-1 bg-stone-200 mt-1" />
+      </div>
+      <div className="flex-1 pb-6">
+        <div className="flex flex-wrap items-center gap-2 mb-2">
+          <span className="text-sm font-semibold text-stone-800">{message.senderName}</span>
+          <span className={cn(
+            'text-xs px-2 py-0.5 rounded-full',
+            isEditor ? 'bg-[#1e3a5f]/10 text-[#1e3a5f]' : 'bg-amber-100 text-amber-700'
+          )}>
+            {isEditor ? '编辑' : '作者'}
+          </span>
+          {message.templateType && (
+            <span className="inline-flex items-center gap-0.5 text-xs px-2 py-0.5 rounded bg-purple-50 text-purple-600">
+              <MessageCircle className="w-3 h-3" />
+              {message.templateType === 'reminder' ? '温和提醒' :
+                message.templateType === 'suggestion' ? '补更建议' : '沟通预约'}
+            </span>
+          )}
+          {!message.templateType && (
+            <span className="text-xs text-stone-400 inline-flex items-center gap-0.5">
+              <MessageCircle className="w-3 h-3" />
+              普通消息
+            </span>
+          )}
+        </div>
+        <div className={cn(
+          'p-3 rounded-xl border max-w-md',
+          isResolved ? 'bg-stone-50 border-stone-200' : 'bg-stone-50 border-stone-200'
+        )}>
+          <p className="text-sm text-stone-700 leading-relaxed whitespace-pre-wrap">
+            {message.content}
+          </p>
+        </div>
+        <p className="text-xs text-stone-400 mt-2">{message.createdAt}</p>
+      </div>
+    </div>
+  );
+}
+
+function UnifiedTimeline({
   riskReasons,
   messages,
   histories,
   resolutionNote,
   resolvedAt,
+  showResolutionSection = true,
 }: {
   riskReasons: { label: string; description: string }[];
   messages: Message[];
   histories: FollowupHistory[];
   resolutionNote?: string;
   resolvedAt?: string;
+  showResolutionSection?: boolean;
 }) {
-  const items = useMemo<ReviewTimelineItem[]>(() => {
-    const result: ReviewTimelineItem[] = [];
+  const items = useMemo<UnifiedTimelineItem[]>(() => {
+    const result: UnifiedTimelineItem[] = [];
 
     if (histories.length > 0) {
       const firstHistory = [...histories].sort((a, b) =>
         new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
       )[0];
       const riskTime = new Date(firstHistory.createdAt);
-      riskTime.setMinutes(riskTime.getMinutes() - 1);
+      riskTime.setMinutes(riskTime.getMinutes() - 5);
+      riskReasons.forEach((r) => {
+        result.push({
+          type: 'risk',
+          time: riskTime.toISOString(),
+          data: r,
+        });
+      });
+    }
 
+    if (histories.length === 0 && riskReasons.length > 0 && messages.length > 0) {
+      const firstMsg = [...messages].sort((a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      )[0];
+      const riskTime = new Date(firstMsg.createdAt);
+      riskTime.setMinutes(riskTime.getMinutes() - 5);
       riskReasons.forEach((r) => {
         result.push({
           type: 'risk',
@@ -173,7 +236,7 @@ function ReviewTimeline({
       result.push({ type: 'history', time: h.createdAt, data: h });
     });
 
-    if (resolutionNote && resolvedAt) {
+    if (resolutionNote && resolvedAt && showResolutionSection) {
       result.push({
         type: 'resolution',
         time: resolvedAt,
@@ -182,12 +245,16 @@ function ReviewTimeline({
     }
 
     return result.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-  }, [riskReasons, messages, histories, resolutionNote, resolvedAt]);
+  }, [riskReasons, messages, histories, resolutionNote, resolvedAt, showResolutionSection]);
+
+  const resolvedTime = resolvedAt ? new Date(resolvedAt).getTime() : null;
 
   return (
     <div className="relative">
       {items.map((item, idx) => {
         const isLast = idx === items.length - 1;
+        const isPostResolution = resolvedTime && new Date(item.time).getTime() > resolvedTime;
+
         return (
           <div key={idx} className="flex gap-4">
             <div className="flex flex-col items-center">
@@ -196,7 +263,8 @@ function ReviewTimeline({
                 item.type === 'risk' ? 'bg-rose-500' :
                   item.type === 'message' ? 'bg-purple-500' :
                     item.type === 'resolution' ? 'bg-emerald-500' :
-                      actionTypeColors[item.data.actionType] || 'bg-stone-400'
+                      actionTypeColors[item.data.actionType] || 'bg-stone-400',
+                isPostResolution && 'opacity-50'
               )} />
               {!isLast && <div className="w-0.5 flex-1 bg-stone-200 mt-1" />}
             </div>
@@ -206,36 +274,43 @@ function ReviewTimeline({
                   <div className="flex items-center gap-2 mb-1">
                     <AlertTriangle className="w-4 h-4 text-rose-500" />
                     <span className="text-sm font-semibold text-rose-700">风险出现</span>
+                    {isPostResolution && (
+                      <span className="text-xs px-2 py-0.5 rounded bg-stone-100 text-stone-500">
+                        解决前
+                      </span>
+                    )}
                   </div>
                   <div className="p-3 bg-rose-50 rounded-lg border border-rose-100">
                     <p className="text-sm font-medium text-stone-800">{item.data.label}</p>
                     <p className="text-xs text-stone-500 mt-1">{item.data.description}</p>
                   </div>
-                  <p className="text-xs text-stone-400 mt-2">{item.time.slice(0, 16).replace('T', ' ')}</p>
+                  <p className="text-xs text-stone-400 mt-2">
+                    {item.time.slice(0, 16).replace('T', ' ')}
+                  </p>
                 </div>
               )}
 
               {item.type === 'message' && (
                 <div>
-                  <div className="flex flex-wrap items-center gap-2 mb-1">
-                    <span className="text-sm font-semibold text-stone-800">{item.data.senderName}</span>
-                    <span className={cn(
-                      'text-xs px-2 py-0.5 rounded-full',
-                      item.data.senderRole === 'editor' ? 'bg-[#1e3a5f]/10 text-[#1e3a5f]' : 'bg-amber-100 text-amber-700'
-                    )}>
-                      {item.data.senderRole === 'editor' ? '编辑' : '作者'}
+                  {isPostResolution && (
+                    <span className="text-xs px-2 py-0.5 rounded bg-stone-100 text-stone-500 mb-2 inline-block">
+                      解决后补充
                     </span>
-                    <MessageCircle className="w-3.5 h-3.5 text-purple-500" />
-                    <span className="text-xs text-stone-400">发送消息</span>
-                  </div>
-                  <div className="p-3 bg-stone-50 rounded-lg border border-stone-200">
-                    <p className="text-sm text-stone-700 leading-relaxed whitespace-pre-wrap">{item.data.content}</p>
-                  </div>
-                  <p className="text-xs text-stone-400 mt-2">{item.data.createdAt}</p>
+                  )}
+                  <MessageBubble message={item.data} isResolved={isPostResolution} />
                 </div>
               )}
 
-              {item.type === 'history' && <FollowupHistoryItem history={item.data} />}
+              {item.type === 'history' && (
+                <div>
+                  {isPostResolution && (
+                    <span className="text-xs px-2 py-0.5 rounded bg-stone-100 text-stone-500 mb-2 inline-block">
+                      解决后补充
+                    </span>
+                  )}
+                  <FollowupHistoryItem history={item.data} />
+                </div>
+              )}
 
               {item.type === 'resolution' && (
                 <div>
@@ -243,7 +318,7 @@ function ReviewTimeline({
                     <CheckCircle className="w-4 h-4 text-emerald-500" />
                     <span className="text-sm font-semibold text-emerald-700">风险已解决</span>
                   </div>
-                  <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                  <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
                     <p className="text-sm text-emerald-700">
                       <span className="font-medium">处理结果：</span>{item.data.note}
                     </p>
@@ -275,7 +350,7 @@ export function WorkDetail() {
   const [showFollowupDropdown, setShowFollowupDropdown] = useState(false);
   const [showResolveModal, setShowResolveModal] = useState(false);
   const [resolutionText, setResolutionText] = useState('');
-  const [showReview, setShowReview] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabType>('overview');
 
   const work = id ? getWorkById(id) : undefined;
   const statuses = id ? getDailyStatuses(id) : [];
@@ -285,6 +360,18 @@ export function WorkDetail() {
   const coverColor = getWorkCoverColor(workIndex);
 
   const latestStatus = statuses[statuses.length - 1];
+
+  const isEditor = currentUser?.role === 'editor';
+  const isResolved = work?.followupStatus === 'resolved';
+
+  const tabs: { key: TabType; label: string; icon: typeof LayoutDashboard }[] = [
+    { key: 'overview', label: '作品概览', icon: LayoutDashboard },
+    { key: 'collaboration', label: '协作记录', icon: Users },
+  ];
+
+  if (isResolved) {
+    tabs.push({ key: 'review', label: '风险复盘', icon: BarChart3 });
+  }
 
   const handleSendMessage = (type: MessageTemplateType) => {
     if (!work) return;
@@ -323,11 +410,8 @@ export function WorkDetail() {
     );
   }
 
-  const isEditor = currentUser?.role === 'editor';
-  const isResolved = work.followupStatus === 'resolved';
-
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-4">
         <button
           onClick={() => navigate('/dashboard')}
@@ -346,102 +430,41 @@ export function WorkDetail() {
           </button>
         )}
         {isResolved && work.resolutionNote && (
-          <>
-            <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
-              <CheckCircle className="w-5 h-5" />
-              <div>
-                <p className="text-sm font-medium">已解决</p>
-                <p className="text-xs">{work.resolutionNote}</p>
-              </div>
+          <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
+            <CheckCircle className="w-5 h-5" />
+            <div>
+              <p className="text-sm font-medium">已解决</p>
+              <p className="text-xs">{work.resolutionNote}</p>
             </div>
-            <button
-              onClick={() => setShowReview(!showReview)}
-              className={cn(
-                'flex items-center gap-2 px-4 py-2 rounded-lg transition-colors border',
-                showReview
-                  ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]'
-                  : 'bg-white text-[#1e3a5f] border-[#1e3a5f]/30 hover:bg-[#1e3a5f]/5'
-              )}
-            >
-              <Layers className="w-5 h-5" />
-              {showReview ? '关闭复盘' : '查看风险复盘'}
-              <ArrowRight className={cn('w-4 h-4 transition-transform', showReview && 'rotate-90')} />
-            </button>
-          </>
+          </div>
         )}
       </div>
 
-      {showReview && isResolved && (
-        <div className="bg-gradient-to-br from-emerald-50 via-white to-stone-50 rounded-2xl shadow-sm border border-emerald-200 p-8">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-12 h-12 rounded-xl bg-emerald-500 flex items-center justify-center">
-              <Target className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold text-stone-800">风险复盘</h2>
-              <p className="text-stone-500 text-sm">完整回顾风险从出现到解决的全过程</p>
-            </div>
-            {work.resolvedAt && (
-              <div className="ml-auto text-right">
-                <p className="text-xs text-stone-400">解决时间</p>
-                <p className="text-sm font-medium text-emerald-700">{work.resolvedAt}</p>
-              </div>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            <div className="p-4 rounded-xl bg-white border border-stone-200">
-              <p className="text-xs text-stone-400 mb-1">风险数量</p>
-              <p className="text-2xl font-bold text-rose-600">{work.riskReasons.length}</p>
-            </div>
-            <div className="p-4 rounded-xl bg-white border border-stone-200">
-              <p className="text-xs text-stone-400 mb-1">沟通消息</p>
-              <p className="text-2xl font-bold text-purple-600">{messages.length}</p>
-            </div>
-            <div className="p-4 rounded-xl bg-white border border-stone-200">
-              <p className="text-xs text-stone-400 mb-1">跟进记录</p>
-              <p className="text-2xl font-bold text-blue-600">{histories.length}</p>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-stone-200 p-6">
-            <h3 className="font-semibold text-stone-800 mb-6">完整闭环时间线</h3>
-            <ReviewTimeline
-              riskReasons={work.riskReasons}
-              messages={messages}
-              histories={histories}
-              resolutionNote={work.resolutionNote}
-              resolvedAt={work.resolvedAt}
-            />
-          </div>
-        </div>
-      )}
-
       <div className="bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden">
-        <div className="relative h-40 bg-gradient-to-br from-[#1e3a5f] to-[#2d4a6f]">
+        <div className="relative h-32 bg-gradient-to-br from-[#1e3a5f] to-[#2d4a6f]">
           <div className="absolute inset-0 opacity-20">
             <div className="absolute top-0 right-0 w-96 h-96 bg-amber-400 rounded-full blur-3xl" />
           </div>
         </div>
 
-        <div className="px-8 pb-8 -mt-16 relative">
+        <div className="px-8 pb-4 -mt-12 relative">
           <div className="flex flex-col md:flex-row gap-6 items-start">
             <div
               className={cn(
-                'w-32 h-44 rounded-xl bg-gradient-to-br flex items-center justify-center shadow-xl border-4 border-white flex-shrink-0',
+                'w-24 h-32 rounded-xl bg-gradient-to-br flex items-center justify-center shadow-xl border-4 border-white flex-shrink-0',
                 coverColor
               )}
             >
               <span
-                className="text-white/90 text-5xl font-bold"
+                className="text-white/90 text-4xl font-bold"
                 style={{ fontFamily: "'Source Han Serif SC', serif" }}
               >
                 {work.title.charAt(0)}
               </span>
             </div>
 
-            <div className="flex-1 pt-4 w-full">
-              <div className="flex flex-wrap items-center gap-3 mb-3">
+            <div className="flex-1 pt-2 w-full">
+              <div className="flex flex-wrap items-center gap-3 mb-2">
                 <span
                   className={cn(
                     'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium',
@@ -497,108 +520,116 @@ export function WorkDetail() {
               </div>
 
               <h1
-                className="text-3xl font-bold text-stone-800 mb-2"
+                className="text-2xl font-bold text-stone-800 mb-1"
                 style={{ fontFamily: "'Source Han Serif SC', serif" }}
               >
                 {work.title}
               </h1>
 
-              <div className="flex flex-wrap gap-6 text-stone-600">
+              <div className="flex flex-wrap gap-4 text-stone-600 text-sm">
                 <div className="flex items-center gap-2">
-                  <User className="w-4 h-4 text-stone-400" />
+                  <User className="w-3.5 h-3.5 text-stone-400" />
                   <span>作者：{work.authorName}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-stone-400" />
+                  <FileText className="w-3.5 h-3.5 text-stone-400" />
                   <span>总字数：{(work.totalWords / 10000).toFixed(1)} 万</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-stone-400" />
-                  <span>
-                    状态：
-                    <span className={work.status === 'ongoing' ? 'text-emerald-600 font-medium' : 'text-stone-500'}>
-                      {work.status === 'ongoing' ? '连载中' : '已完结'}
-                    </span>
-                  </span>
                 </div>
                 {latestStatus && (
                   <div className="flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-amber-500" />
-                    <span>
-                      当前存稿：
-                      <span className={latestStatus.draftCount < 3 ? 'text-rose-600 font-medium' : 'text-amber-600 font-medium'}>
-                        {latestStatus.draftCount} 章
-                      </span>
-                    </span>
+                    <FileText className="w-3.5 h-3.5 text-amber-500" />
+                    <span>存稿：{latestStatus.draftCount} 章</span>
                   </div>
                 )}
               </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      {work.riskReasons.length > 0 && (
-        <div className={cn(
-          'bg-white rounded-2xl shadow-sm border p-6 transition-colors',
-          isResolved ? 'border-stone-200 opacity-70' : 'border-stone-200'
-        )}>
-          <div className="flex items-center gap-2 mb-5">
-            <AlertTriangle className={cn('w-5 h-5', isResolved ? 'text-stone-400' : 'text-amber-500')} />
-            <h3 className="text-lg font-bold text-stone-800">风险原因分析</h3>
-            <span className="text-sm text-stone-500">共 {work.riskReasons.length} 项需要关注</span>
-            {isResolved && (
-              <span className="ml-auto text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium">
-                已解决
-              </span>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {work.riskReasons.map((reason, index) => {
-              const Icon = riskIconMap[reason.type] || AlertTriangle;
+          <div className="flex gap-2 mt-4 -mx-2">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.key;
               return (
-                <div
-                  key={index}
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
                   className={cn(
-                    'p-5 rounded-xl border transition-colors',
-                    isResolved
-                      ? 'border-stone-200 bg-stone-50/30'
-                      : 'border-stone-200 bg-stone-50/50 hover:bg-stone-50'
+                    'flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-all border-b-2',
+                    isActive
+                      ? 'text-[#1e3a5f] border-[#1e3a5f]'
+                      : 'text-stone-500 border-transparent hover:text-stone-700'
                   )}
                 >
-                  <div className="flex items-start gap-4">
-                    <div className={cn(
-                      'w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0',
-                      isResolved ? 'text-stone-400 bg-stone-100' : riskColorMap[reason.type]
-                    )}>
-                      <Icon className="w-5 h-5" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className={cn('font-semibold', isResolved ? 'text-stone-500 line-through' : 'text-stone-800')}>
-                        {reason.label}
-                      </p>
-                      <p className={cn('text-sm mt-1 leading-relaxed', isResolved ? 'text-stone-400' : 'text-stone-500')}>
-                        {reason.description}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                  <Icon className="w-4 h-4" />
+                  {tab.label}
+                </button>
               );
             })}
           </div>
         </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <WordChart statuses={statuses} />
-        <Timeline statuses={statuses} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
+      {activeTab === 'overview' && (
+        <div className="space-y-6">
+          {work.riskReasons.length > 0 && (
+            <div className={cn(
+              'bg-white rounded-2xl shadow-sm border p-6 transition-colors',
+              isResolved ? 'border-stone-200 opacity-80' : 'border-stone-200'
+            )}>
+              <div className="flex items-center gap-2 mb-5">
+                <AlertTriangle className={cn('w-5 h-5', isResolved ? 'text-stone-400' : 'text-amber-500')} />
+                <h3 className="text-lg font-bold text-stone-800">风险原因分析</h3>
+                <span className="text-sm text-stone-500">共 {work.riskReasons.length} 项</span>
+                {isResolved && (
+                  <span className="ml-auto text-xs px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium">
+                    已解决
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {work.riskReasons.map((reason, index) => {
+                  const Icon = riskIconMap[reason.type] || AlertTriangle;
+                  return (
+                    <div
+                      key={index}
+                      className={cn(
+                        'p-5 rounded-xl border transition-colors',
+                        isResolved
+                          ? 'border-stone-200 bg-stone-50/30'
+                          : 'border-stone-200 bg-stone-50/50 hover:bg-stone-50'
+                      )}
+                    >
+                      <div className="flex items-start gap-4">
+                        <div className={cn(
+                          'w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0',
+                          isResolved ? 'text-stone-400 bg-stone-100' : riskColorMap[reason.type]
+                        )}>
+                          <Icon className="w-5 h-5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={cn('font-semibold', isResolved ? 'text-stone-500 line-through' : 'text-stone-800')}>
+                            {reason.label}
+                          </p>
+                          <p className={cn('text-sm mt-1 leading-relaxed', isResolved ? 'text-stone-400' : 'text-stone-500')}>
+                            {reason.description}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <WordChart statuses={statuses} />
+            <Timeline statuses={statuses} />
+          </div>
+
           {!isResolved ? (
-            <>
+            <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-6">
               <div className="mb-6">
                 <h2 className="text-xl font-bold text-stone-800">发送消息</h2>
                 <p className="text-stone-500 mt-1">
@@ -619,48 +650,159 @@ export function WorkDetail() {
                   />
                 ))}
               </div>
-            </>
+            </div>
           ) : (
             <div className="bg-emerald-50 rounded-2xl border border-emerald-200 p-8 text-center">
               <CheckCircle className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
               <h3 className="text-lg font-bold text-emerald-700 mb-1">风险已归档</h3>
-              <p className="text-sm text-stone-500 mb-4">该作品风险已解决，如需继续沟通可前往消息中心</p>
-              <button
-                onClick={() => navigate('/messages')}
-                className="px-6 py-2 rounded-xl bg-emerald-500 text-white hover:bg-emerald-600 transition-colors font-medium inline-flex items-center gap-2"
-              >
-                <MessageCircle className="w-4 h-4" />
-                查看消息中心
-              </button>
+              <p className="text-sm text-stone-500 mb-4">
+                该作品风险已解决，如需继续沟通可前往消息中心或查看协作记录
+              </p>
+              <div className="flex items-center justify-center gap-3">
+                <button
+                  onClick={() => setActiveTab('collaboration')}
+                  className="px-6 py-2 rounded-xl bg-emerald-500 text-white hover:bg-emerald-600 transition-colors font-medium inline-flex items-center gap-2"
+                >
+                  <Users className="w-4 h-4" />
+                  查看协作记录
+                </button>
+                <button
+                  onClick={() => navigate('/messages')}
+                  className="px-6 py-2 rounded-xl border border-emerald-300 text-emerald-700 hover:bg-emerald-100 transition-colors font-medium inline-flex items-center gap-2"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  消息中心
+                </button>
+              </div>
             </div>
           )}
         </div>
+      )}
 
-        <div>
-          <div className="mb-6">
-            <div className="flex items-center gap-2">
-              <History className="w-5 h-5 text-[#1e3a5f]" />
-              <h2 className="text-xl font-bold text-stone-800">跟进历史</h2>
+      {activeTab === 'collaboration' && (
+        <div className="bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden">
+          <div className="p-6 border-b border-stone-100">
+            <div className="flex flex-wrap items-center gap-4 justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Users className="w-5 h-5 text-[#1e3a5f]" />
+                  <h3 className="text-lg font-bold text-stone-800">协作记录</h3>
+                </div>
+                <p className="text-sm text-stone-500 mt-1">
+                  状态变更、消息往来、作者回复，所有动作都在这里
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-stone-400">
+                  共 {messages.length + histories.length} 条记录
+                </span>
+              </div>
             </div>
-            <p className="text-stone-500 mt-1 text-sm">共 {histories.length} 条记录</p>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-sm border border-stone-200 p-6">
-            {histories.length === 0 ? (
-              <div className="text-center py-8 text-stone-400">
-                <Clock className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                <p>暂无跟进记录</p>
+          <div className="p-6 max-h-[600px] overflow-y-auto">
+            {messages.length === 0 && histories.length === 0 && work.riskReasons.length === 0 ? (
+              <div className="text-center py-16 text-stone-400">
+                <Users className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                <p>暂无协作记录</p>
+                <p className="text-sm mt-1">发送第一条消息开始协作</p>
               </div>
             ) : (
-              <div className="max-h-[500px] overflow-y-auto pr-2">
-                {histories.map((history) => (
-                  <FollowupHistoryItem key={history.id} history={history} />
-                ))}
-              </div>
+              <UnifiedTimeline
+                riskReasons={work.riskReasons}
+                messages={messages}
+                histories={histories}
+                resolutionNote={work.resolutionNote}
+                resolvedAt={work.resolvedAt}
+              />
             )}
           </div>
         </div>
-      </div>
+      )}
+
+      {activeTab === 'review' && isResolved && (
+        <div className="bg-gradient-to-br from-emerald-50 via-white to-stone-50 rounded-2xl shadow-sm border border-emerald-200 p-8">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-12 h-12 rounded-xl bg-emerald-500 flex items-center justify-center">
+              <Target className="w-6 h-6 text-white" />
+            </div>
+            <div className="flex-1">
+              <h2 className="text-2xl font-bold text-stone-800">风险复盘</h2>
+              <p className="text-stone-500 text-sm">完整回顾风险从出现到解决的全过程</p>
+            </div>
+            {work.resolvedAt && (
+              <div className="text-right">
+                <p className="text-xs text-stone-400">解决时间</p>
+                <p className="text-sm font-medium text-emerald-700">{work.resolvedAt}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div className="p-4 rounded-xl bg-white border border-stone-200">
+              <p className="text-xs text-stone-400 mb-1">风险数量</p>
+              <p className="text-2xl font-bold text-rose-600">{work.riskReasons.length}</p>
+            </div>
+            <div className="p-4 rounded-xl bg-white border border-stone-200">
+              <p className="text-xs text-stone-400 mb-1">沟通消息</p>
+              <p className="text-2xl font-bold text-purple-600">{messages.length}</p>
+            </div>
+            <div className="p-4 rounded-xl bg-white border border-stone-200">
+              <p className="text-xs text-stone-400 mb-1">跟进操作</p>
+              <p className="text-2xl font-bold text-blue-600">{histories.length}</p>
+            </div>
+            <div className="p-4 rounded-xl bg-white border border-stone-200">
+              <p className="text-xs text-stone-400 mb-1">当前状态</p>
+              <p className="text-2xl font-bold text-emerald-600">已解决</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            <div className="p-5 rounded-xl bg-rose-50 border border-rose-100">
+              <h4 className="font-semibold text-stone-800 mb-3 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-500" />
+                解决前风险原因
+              </h4>
+              <div className="space-y-2">
+                {work.riskReasons.length > 0 ? (
+                  work.riskReasons.map((r, i) => (
+                    <div key={i} className="flex items-start gap-2 text-sm">
+                      <span className="text-rose-500 mt-0.5">•</span>
+                      <div>
+                        <p className="font-medium text-stone-700">{r.label}</p>
+                        <p className="text-stone-500 text-xs mt-0.5">{r.description}</p>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-stone-500">无风险记录</p>
+                )}
+              </div>
+            </div>
+
+            <div className="p-5 rounded-xl bg-emerald-50 border border-emerald-100">
+              <h4 className="font-semibold text-stone-800 mb-3 flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-emerald-500" />
+                最终处理结果
+              </h4>
+              <p className="text-sm text-emerald-700 leading-relaxed">
+                {work.resolutionNote || '暂无处理结果说明'}
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl border border-stone-200 p-6">
+            <h4 className="font-semibold text-stone-800 mb-6">完整闭环时间线</h4>
+            <UnifiedTimeline
+              riskReasons={work.riskReasons}
+              messages={messages}
+              histories={histories}
+              resolutionNote={work.resolutionNote}
+              resolvedAt={work.resolvedAt}
+            />
+          </div>
+        </div>
+      )}
 
       {showResolveModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
